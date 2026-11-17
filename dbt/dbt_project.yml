@@ -8,3 +8,5 @@ models:
   olist:
     staging:
       +materialized: view
+    marts:
+      +materialized: table

@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: "One row per order, with customer, item totals, main category and delivery outcome."
+    columns:
+      - name: order_id
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        data_tests:
+          - not_null
