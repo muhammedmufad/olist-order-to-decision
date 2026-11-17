@@ -3,8 +3,9 @@ from pathlib import Path
 
 import duckdb
 
-RAW_DIR = Path("data/raw")
-DB_PATH = Path("warehouse/olist.duckdb")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
+DB_PATH = PROJECT_ROOT / "warehouse" / "olist.duckdb"
 
 
 def table_name(csv_path: Path) -> str:
