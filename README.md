@@ -34,8 +34,8 @@ flowchart LR
 
 - **8.1% of delivered orders arrived late** (7,826 of 96,470 orders with a delivery date), measured as delivery after the estimated date shown to the customer. The classes are imbalanced, so the model in module 2 is evaluated with precision, recall and PR-AUC, not accuracy.
 - **About 3% of orders were never delivered** (shipped, canceled, unavailable and others). They stay in the data but are excluded from the late-delivery target.
-- **Repeat buying is rare:** 2,997 of [CUSTOMERS] customers placed more than one order. Olist creates a new `customer_id` for every order, so customers are counted with `customer_unique_id`. A dbt test documents this as a warning.
-- **Coverage:** orders from [FIRST] to [LAST]. The first and last months are sparse and will be trimmed for forecasting.
+- **Repeat buying is rare:** 2,997 of 96,096 customers placed more than one order. Olist creates a new `customer_id` for every order, so customers are counted with `customer_unique_id`. A dbt test documents this as a warning.
+- **Coverage:** orders from Sep 2016 to Oct 2018. The first and last months are sparse and will be trimmed for forecasting.
 
 ## How to run
 
