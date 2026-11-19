@@ -5,7 +5,9 @@ with items as (
         count(distinct i.seller_id)           as seller_count,
         sum(i.price)                          as items_value,
         sum(i.freight_value)                  as freight_value,
-        arg_max(p.category_name, i.price)     as main_category
+        arg_max(p.category_name, i.price)     as main_category,
+        arg_max(i.seller_id, i.price)         as main_seller_id,
+        arg_max(p.weight_g, i.price)          as main_item_weight_g
     from {{ ref('stg_order_items') }} as i
     left join {{ ref('stg_products') }} as p
         on i.product_id = p.product_id
@@ -25,6 +27,8 @@ select
     i.items_value,
     i.freight_value,
     i.main_category,
+    i.main_seller_id,
+    i.main_item_weight_g,
     date_diff('day', o.purchased_at, o.delivered_at)           as delivery_days,
     date_diff('day', o.purchased_at, o.estimated_delivery_at)  as promised_days,
     case

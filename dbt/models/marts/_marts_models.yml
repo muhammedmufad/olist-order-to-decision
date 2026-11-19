@@ -11,3 +11,17 @@ models:
       - name: customer_unique_id
         data_tests:
           - not_null
+  
+  - name: ml_late_delivery_features
+    description: "One row per delivered order. Only purchase-time information, plus the is_late target."
+    columns:
+      - name: order_id
+        data_tests:
+          - unique
+          - not_null
+      - name: is_late
+        data_tests:
+          - not_null
+      - name: promised_days
+        data_tests:
+          - not_null
