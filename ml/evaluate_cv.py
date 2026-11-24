@@ -11,9 +11,16 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from train_late_delivery import CATEGORICAL, NUMERIC, load_features
 
+HISTORY = [
+    "seller_past_orders", "seller_past_late_rate",
+    "recent_delivered_14d", "recent_late_rate_14d",
+]
+BASE = [c for c in NUMERIC if c not in HISTORY]
+
 FEATURE_SETS = {
-    "without distance": [c for c in NUMERIC if c != "distance_km"],
-    "with distance": NUMERIC,
+    "base": BASE,
+    "+ history": BASE + HISTORY,
+    "+ history, no month": [c for c in BASE + HISTORY if c != "purchase_month"],
 }
 
 MODELS = {
