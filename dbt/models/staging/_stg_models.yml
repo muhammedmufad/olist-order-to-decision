@@ -59,3 +59,9 @@ models:
         data_tests:
           - unique
           - not_null
+  - name: stg_geolocation
+    columns:
+      - name: zip_code_prefix
+        data_tests:
+          - unique
+          - not_null

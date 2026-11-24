@@ -18,6 +18,7 @@ select
     o.order_id,
     c.customer_unique_id,
     c.customer_state,
+    c.customer_zip_code_prefix,
     o.order_status,
     o.purchased_at,
     o.delivered_at,

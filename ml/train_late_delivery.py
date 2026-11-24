@@ -19,7 +19,7 @@ SPLIT_DATE = "2018-04-01"
 NUMERIC = [
     "purchase_month", "purchase_dow", "purchase_hour", "promised_days",
     "item_count", "seller_count", "items_value", "freight_value",
-    "freight_ratio", "main_item_weight_g",
+        "freight_ratio", "main_item_weight_g", "distance_km",
 ]
 CATEGORICAL = ["main_category", "customer_state", "seller_state", "same_state"]
 
