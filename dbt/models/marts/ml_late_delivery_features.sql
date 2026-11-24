@@ -28,6 +28,10 @@ select
         + cos(radians(cg.lat)) * cos(radians(sg.lat))
           * power(sin(radians(sg.lng - cg.lng) / 2), 2)
     ))                                                as distance_km,
+    h.seller_past_orders,
+    h.seller_past_late_rate,
+    h.recent_delivered_14d,
+    h.recent_late_rate_14d,
     f.is_late                                         -- the target
 from {{ ref('fct_orders') }} as f
 left join {{ ref('stg_sellers') }} as s
@@ -36,4 +40,6 @@ left join geo as cg
     on f.customer_zip_code_prefix = cg.zip_code_prefix
 left join geo as sg
     on s.seller_zip_code_prefix = sg.zip_code_prefix
+left join {{ ref('ml_history_features') }} as h
+    on f.order_id = h.order_id
 where f.is_late is not null

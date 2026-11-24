@@ -25,3 +25,14 @@ models:
       - name: promised_days
         data_tests:
           - not_null
+
+  - name: ml_history_features
+    description: "Seller reliability and recent delivery conditions, computed only from orders delivered before each purchase."
+    columns:
+      - name: order_id
+        data_tests:
+          - unique
+          - not_null
+      - name: seller_past_orders
+        data_tests:
+          - not_null
