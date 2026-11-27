@@ -1,0 +1,29 @@
+{
+  "model": "logistic regression",
+  "chosen_by": "time-based cross-validation (mean lift 1.88x, see README)",
+  "numeric_features": [
+    "purchase_dow",
+    "purchase_hour",
+    "promised_days",
+    "item_count",
+    "seller_count",
+    "items_value",
+    "freight_value",
+    "freight_ratio",
+    "main_item_weight_g",
+    "distance_km"
+  ],
+  "categorical_features": [
+    "main_category",
+    "customer_state",
+    "seller_state",
+    "same_state"
+  ],
+  "trained_on_orders": 96470,
+  "training_period": [
+    "2016-09-15",
+    "2018-08-29"
+  ],
+  "training_late_rate": 0.0811,
+  "trained_at": "2026-11-27T16:30:40"
+}
