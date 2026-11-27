@@ -207,5 +207,4 @@ Brazilian E-Commerce Public Dataset by Olist, published on Kaggle. The data is n
 - Prediction intervals use one shared set of multipliers for all categories; smaller categories are relatively noisier than this assumes.
 - The inventory simulation rests on stated assumptions (hypothetical warehouse, 2-week lead time, lost sales) and a fixed forecast, not on Olist's actual logistics.
 - Each category has only about 38 weeks of error history, so simulated extremes cannot be worse than the worst week observed; the 99% targets understate rare risks.
-- Package versions in `requirements.txt` are not yet pinned.
 - The data covers 2016–2018 and one marketplace, so findings describe that context only.
