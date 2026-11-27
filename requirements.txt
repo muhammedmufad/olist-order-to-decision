@@ -1,7 +1,9 @@
 dbt-duckdb==1.11.1
 duckdb==2.0.0
 fastapi==0.150.0
+httpx==0.28.1
 pandas==3.1.1
 prefect==3.9.3
+pytest==9.2.0
 scikit-learn==1.9.1
 uvicorn==0.54.0
