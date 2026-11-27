@@ -9,13 +9,14 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from train_late_delivery import CATEGORICAL, NUMERIC, load_features
+from train_late_delivery import CATEGORICAL, NUMERIC, load_features, top_share_metrics
 
 SELLER = ["seller_past_orders", "seller_past_late_rate"]
 RECENT = ["recent_delivered_14d", "recent_late_rate_14d"]
 BASE_NO_MONTH = [c for c in NUMERIC if c not in SELLER + RECENT + ["purchase_month"]]
 
 FEATURE_SETS = {
+    "base, with month": [c for c in NUMERIC if c not in SELLER + RECENT],
     "base, no month": BASE_NO_MONTH,
     "+ seller, no month": BASE_NO_MONTH + SELLER,
     "+ seller + recent, no month": BASE_NO_MONTH + SELLER + RECENT,
@@ -58,7 +59,7 @@ def main() -> None:
     for model_name, make_model in MODELS.items():
         for set_name, numeric in FEATURE_SETS.items():
             X = df[numeric + CATEGORICAL]
-            pr_aucs, lifts = [], []
+            pr_aucs, lifts, recalls = [], [], []
             for train_idx, test_idx in folds:
                 pipe = make_pipeline(make_model(), numeric, CATEGORICAL)
                 pipe.fit(X.iloc[train_idx], y[train_idx])
@@ -66,10 +67,12 @@ def main() -> None:
                 pr_auc = average_precision_score(y[test_idx], scores)
                 pr_aucs.append(pr_auc)
                 lifts.append(pr_auc / y[test_idx].mean())
+                recalls.append(top_share_metrics(y[test_idx], scores)[1])
 
             per_fold = ", ".join(f"{p:.3f}" for p in pr_aucs)
             print(f"{model_name:<20} {set_name:<28} "
-                  f"PR-AUC per fold: {per_fold} | mean lift {np.mean(lifts):.2f}x")
+                  f"PR-AUC per fold: {per_fold} | mean lift {np.mean(lifts):.2f}x "
+                  f"| top-10% recall {np.mean(recalls):.1%}")
 
 
 if __name__ == "__main__":
