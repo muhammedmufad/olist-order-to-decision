@@ -1,6 +1,9 @@
+{% set first_week = '2017-01-02' %}  {# data is sparse before 2017; November 2016 has no orders at all #}
+{% set end_week = '2018-08-20' %}    {# exclusive: the week starting 2018-08-20 is cut off mid-week #}
+
 -- Weekly units ordered per product category: the input for demand forecasting.
 -- Demand is counted at purchase time; canceled and unavailable orders are excluded.
--- Weeks with no sales appear as 0 (zero-filled), so the forecast sees real gaps.
+-- Every week in the range appears for every category; weeks without sales are 0.
 
 with items as (
     select
@@ -15,24 +18,10 @@ with items as (
     where o.order_status not in ('canceled', 'unavailable')
 ),
 
-weekly_totals as (
-    select week_start, count(*) as units
-    from items
-    group by 1
-),
-
-valid_range as (
-    -- the span of weeks with meaningful volume; trims the sparse start and end
-    select min(week_start) as first_week, max(week_start) as last_week
-    from weekly_totals
-    where units >= 200
-),
-
 weeks as (
-    select w.week_start
-    from weekly_totals as w
-    cross join valid_range as r
-    where w.week_start between r.first_week and r.last_week
+    -- one row for EVERY week in the range, generated as a calendar, not taken from the data
+    select range as week_start
+    from range(timestamp '{{ first_week }}', timestamp '{{ end_week }}', interval 7 day)
 ),
 
 categories as (
