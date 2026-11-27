@@ -36,3 +36,14 @@ models:
       - name: seller_past_orders
         data_tests:
           - not_null
+  
+  - name: mart_weekly_category_demand
+    description: "Units ordered per week and product category, zero-filled, trimmed to weeks with meaningful volume."
+    columns:
+      - name: demand_key
+        data_tests:
+          - unique
+          - not_null
+      - name: units
+        data_tests:
+          - not_null
