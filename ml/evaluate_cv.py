@@ -11,16 +11,14 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from train_late_delivery import CATEGORICAL, NUMERIC, load_features
 
-HISTORY = [
-    "seller_past_orders", "seller_past_late_rate",
-    "recent_delivered_14d", "recent_late_rate_14d",
-]
-BASE = [c for c in NUMERIC if c not in HISTORY]
+SELLER = ["seller_past_orders", "seller_past_late_rate"]
+RECENT = ["recent_delivered_14d", "recent_late_rate_14d"]
+BASE_NO_MONTH = [c for c in NUMERIC if c not in SELLER + RECENT + ["purchase_month"]]
 
 FEATURE_SETS = {
-    "base": BASE,
-    "+ history": BASE + HISTORY,
-    "+ history, no month": [c for c in BASE + HISTORY if c != "purchase_month"],
+    "base, no month": BASE_NO_MONTH,
+    "+ seller, no month": BASE_NO_MONTH + SELLER,
+    "+ seller + recent, no month": BASE_NO_MONTH + SELLER + RECENT,
 }
 
 MODELS = {
@@ -70,7 +68,7 @@ def main() -> None:
                 lifts.append(pr_auc / y[test_idx].mean())
 
             per_fold = ", ".join(f"{p:.3f}" for p in pr_aucs)
-            print(f"{model_name:<20} {set_name:<17} "
+            print(f"{model_name:<20} {set_name:<28} "
                   f"PR-AUC per fold: {per_fold} | mean lift {np.mean(lifts):.2f}x")
 
 
