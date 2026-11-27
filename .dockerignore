@@ -1,0 +1,6 @@
+.venv/
+data/
+warehouse/
+dbt/
+.git/
+__pycache__/
