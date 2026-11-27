@@ -9,7 +9,7 @@ End-to-end analytics on 99,441 real e-commerce orders from Olist, a Brazilian ma
 | Module | Content | Status |
 |---|---|---|
 | 1. Data pipeline | DuckDB warehouse, dbt models with tests, Prefect orchestration | ✅ Done |
-| 2. Models | Late-delivery classifier ✅, weekly demand forecast with prediction intervals | 🔄 In progress |
+| 2. Models | Late-delivery classifier, weekly demand forecast with prediction intervals | ✅ Done |
 | 3. Inventory simulation | Monte Carlo safety stock and service levels | Planned |
 | 4. Experiment analysis | A/B test analysis on a public mobile-game dataset | Planned |
 | 5. Serving and monitoring | FastAPI in Docker, drift check, dashboard | Planned |
@@ -40,6 +40,7 @@ flowchart LR
 - **8.1% of delivered orders arrived late** (7,826 of 96,470 orders with a delivery date), measured as delivery after the estimated date shown to the customer.
 - **Lateness swings strongly over time:** from 1.4% of orders (June 2018) to 21.4% (March 2018). November 2017 (14.3%) coincides with the year's largest order volume; February–March 2018 (16–21%) had normal volume, so the cause was operational, not demand.
 - **About 3% of orders were never delivered.** They stay in the data but are excluded from the late-delivery target.
+- **The business grew about ninefold in one year:** from 750 delivered orders in January 2017 to 7,069 in January 2018. Forecasts therefore weight recent weeks over early 2017.
 - **Repeat buying is rare:** 2,997 of 96,096 customers (3.1%) placed more than one order. Olist creates a new `customer_id` for every order, so customers are counted with `customer_unique_id`.
 - **Coverage:** orders from Sep 2016 to Oct 2018. The data is sparse before January 2017.
 
@@ -70,6 +71,29 @@ flowchart LR
 
 **What I would try next:** smoothing seller late rates toward the overall average for sellers with little history; carrier or route information, which the dataset does not contain.
 
+## Weekly demand forecast
+
+**Goal:** forecast units ordered per week for the 10 largest product categories, 4 weeks ahead, with a range that inventory planning can use.
+
+**Data:** `mart_weekly_category_demand` holds one row per week and category, built on a generated calendar (Jan 2017 – Aug 2018, 85 weeks, 72 categories) so weeks without sales appear as 0 instead of going missing. The incomplete final week is excluded, and a dbt test fails if any week is missing.
+
+**Evaluation:** rolling origin: from each of 16 weeks (Apr – Aug 2018), forecast the next 4 weeks using only earlier data, then compare with actual demand. Scored with WAPE (total absolute error ÷ total actual units).
+
+| Method | WAPE |
+|---|---|
+| Naive (last week) | 31.2% |
+| **Mean of last 4 weeks** | **27.6%** |
+| Mean of last 8 weeks | 27.7% |
+| Mean of last 12 weeks | 28.5% |
+
+**Chosen forecast: mean of the last 4 weeks**, tied for best and the quickest to follow a growing business.
+
+**Prediction intervals:** the ratio of actual to forecast demand was measured on an earlier calibration period (origins from late Nov 2017). Its 10th and 90th percentiles (0.52 and 1.55) give an 80% interval of forecast × 0.52 to forecast × 1.55. On the later, unseen test period, **84.1% of actual values fell inside the interval** (target 80%), so the interval is honest and slightly conservative. Example: `bed_bath_table` is forecast at about 189 units per week, with an 80% interval of 99 to 292.
+
+**Interpretation:** weekly category demand is noisy, so even the best simple method misses by about 28% of actual demand. The range matters more than the single number, and the inventory simulation (module 3) is built on it.
+
+**What I would try next:** exponential smoothing or a gradient-boosting model on lagged demand, kept only if it beats the 27.6% WAPE baseline across the rolling evaluation; category-specific intervals instead of one shared set of multipliers.
+
 ## How to run
 
 Requires Python 3.12 on Windows, macOS or Linux.
@@ -95,6 +119,13 @@ python scripts/pipeline.py
 python ml/evaluate_cv.py
 ```
 
+4. Reproduce the demand forecast evaluation and prediction intervals:
+
+```bash
+python ml/forecast_baselines.py
+python ml/forecast_intervals.py
+```
+
 ## Project structure
 
 ```
@@ -111,6 +142,8 @@ python ml/evaluate_cv.py
 └── ml/
     ├── train_late_delivery.py  # feature loading and a single time-split baseline
     └── evaluate_cv.py          # time-based cross-validation of models and feature sets
+    ├── forecast_baselines.py   # rolling evaluation of simple weekly demand forecasts
+    └── forecast_intervals.py   # calibrated 80% prediction intervals
 ```
 
 ## Data
@@ -123,3 +156,4 @@ Brazilian E-Commerce Public Dataset by Olist, published on Kaggle. The data is n
 - Lateness depends strongly on time-period conditions that purchase-time features cannot see, which caps how well any order-level model can perform.
 - Package versions in `requirements.txt` are not yet pinned.
 - The data covers 2016–2018 and one marketplace, so findings describe that context only.
+- Prediction intervals use one shared set of multipliers for all categories; smaller categories are relatively noisier than this assumes.
