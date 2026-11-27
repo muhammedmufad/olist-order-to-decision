@@ -31,7 +31,7 @@ flowchart LR
 
 - **Load:** `scripts/load_raw.py` copies the 9 CSV files unchanged into DuckDB's `raw` schema.
 - **Transform:** dbt staging models rename columns, set types and fix source spelling errors. Marts join them into one row per order (`fct_orders`) and into model-ready feature tables.
-- **Test:** 29 dbt tests check unique and non-null keys, valid order statuses and referential integrity.
+- **Test:** 33 dbt tests check unique and non-null keys, valid order statuses, referential integrity and that no week is missing from the demand calendar.
 - **Orchestrate:** `scripts/pipeline.py` runs load, then build, as one Prefect flow with retries and per-task logs.
 - **Model:** `ml/evaluate_cv.py` compares models and feature sets with time-based cross-validation.
 
@@ -138,10 +138,10 @@ python ml/forecast_intervals.py
 ├── dbt/
 │   └── models/
 │       ├── staging/       # one cleaned model per source table, with tests
-│       └── marts/         # fct_orders, history features, model features
+│       └── marts/         # fct_orders, model features, weekly demand
 └── ml/
     ├── train_late_delivery.py  # feature loading and a single time-split baseline
-    └── evaluate_cv.py          # time-based cross-validation of models and feature sets
+    ├── evaluate_cv.py          # time-based cross-validation of models and feature sets
     ├── forecast_baselines.py   # rolling evaluation of simple weekly demand forecasts
     └── forecast_intervals.py   # calibrated 80% prediction intervals
 ```
