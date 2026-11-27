@@ -10,7 +10,7 @@ End-to-end analytics on 99,441 real e-commerce orders from Olist, a Brazilian ma
 |---|---|---|
 | 1. Data pipeline | DuckDB warehouse, dbt models with tests, Prefect orchestration | ✅ Done |
 | 2. Models | Late-delivery classifier, weekly demand forecast with prediction intervals | ✅ Done |
-| 3. Inventory simulation | Monte Carlo safety stock and service levels | Planned |
+| 3. Inventory simulation | Monte Carlo safety stock and service levels | ✅ Done |
 | 4. Experiment analysis | A/B test analysis on a public mobile-game dataset | Planned |
 | 5. Serving and monitoring | FastAPI in Docker, drift check, dashboard | Planned |
 
@@ -25,15 +25,18 @@ flowchart LR
     D --> F[ml_late_delivery_features]
     E --> F
     F -->|evaluate_cv.py| G[Late-delivery model]
+    C --> H[mart_weekly_category_demand]
+    H -->|forecast_*.py| I[Demand forecast]
+    I -->|inventory_*.py| J[Stock targets]
     P[Prefect flow] -.runs.-> A
     P -.runs.-> C
 ```
 
 - **Load:** `scripts/load_raw.py` copies the 9 CSV files unchanged into DuckDB's `raw` schema.
-- **Transform:** dbt staging models rename columns, set types and fix source spelling errors. Marts join them into one row per order (`fct_orders`) and into model-ready feature tables.
+- **Transform:** dbt staging models rename columns, set types and fix source spelling errors. Marts join them into one row per order (`fct_orders`), model-ready feature tables and weekly demand per category.
 - **Test:** 33 dbt tests check unique and non-null keys, valid order statuses, referential integrity and that no week is missing from the demand calendar.
 - **Orchestrate:** `scripts/pipeline.py` runs load, then build, as one Prefect flow with retries and per-task logs.
-- **Model:** `ml/evaluate_cv.py` compares models and feature sets with time-based cross-validation.
+- **Model and decide:** scripts in `ml/` evaluate the late-delivery model, the demand forecast and the inventory simulation.
 
 ## Findings from the data
 
@@ -90,9 +93,46 @@ flowchart LR
 
 **Prediction intervals:** the ratio of actual to forecast demand was measured on an earlier calibration period (origins from late Nov 2017). Its 10th and 90th percentiles (0.52 and 1.55) give an 80% interval of forecast × 0.52 to forecast × 1.55. On the later, unseen test period, **84.1% of actual values fell inside the interval** (target 80%), so the interval is honest and slightly conservative. Example: `bed_bath_table` is forecast at about 189 units per week, with an 80% interval of 99 to 292.
 
-**Interpretation:** weekly category demand is noisy, so even the best simple method misses by about 28% of actual demand. The range matters more than the single number, and the inventory simulation (module 3) is built on it.
+**Interpretation:** weekly category demand is noisy, so even the best simple method misses by about 28% of actual demand. The range matters more than the single number, and the inventory simulation is built on it.
 
 **What I would try next:** exponential smoothing or a gradient-boosting model on lagged demand, kept only if it beats the 27.6% WAPE baseline across the rolling evaluation; category-specific intervals instead of one shared set of multipliers.
+
+## Inventory simulation
+
+**Goal:** turn the uncertain demand forecast into a stocking decision: how much stock to hold per category so the shelf rarely runs empty, without overstocking.
+
+**Assumptions (stated, not from the data):** Olist sellers hold their own stock, so this plans for a hypothetical warehouse. Every week ends with an order that tops stock up to a target level; an order arrives two weeks after it is placed; demand that cannot be served is lost.
+
+**Method:** Monte Carlo simulation of 2,000 years of 60 weeks each. Weekly demand = the 4-week-mean forecast × a real past forecast error. Errors cluster (lag-1 autocorrelation 0.42: bad weeks follow bad weeks), so they are drawn in blocks of 4 consecutive real weeks rather than one at a time. All targets are compared on the same simulated years.
+
+**Trade-off for `bed_bath_table`** (forecast 189 units per week, errors pooled across the top 10 categories):
+
+| Stock target | Weeks without stockout |
+|---|---|
+| 378 (2 weeks of average demand) | 57% |
+| 547 | 96% |
+| 661 | 99% |
+
+Stocking exactly the expected demand runs out in more than 40% of weeks. Each additional point of service costs more stock than the last, which is the trade-off a planner weighs against the cost of a lost sale. Clustered errors needed the same target as independent ones for 95% service, but 38 more units (+6%) for 99%: weekly reordering with a short lead time absorbs runs of bad weeks, except at the extremes.
+
+**Per-category targets**, each simulated from its own error history:
+
+| Category | Forecast / week | 90% | 95% | 99% (rough) | Cover for 95% |
+|---|---|---|---|---|---|
+| bed_bath_table | 189 | 472 | 500 | 557 | 2.6 weeks |
+| health_beauty | 226 | 633 | 655 | 746 | 2.9 weeks |
+| sports_leisure | 139 | 362 | 397 | 466 | 2.9 weeks |
+| furniture_decor | 136 | 396 | 410 | 464 | 3.0 weeks |
+| computers_accessories | 130 | 376 | 434 | 589 | 3.4 weeks |
+| housewares | 184 | 486 | 514 | 587 | 2.8 weeks |
+| watches_gifts | 128 | 338 | 427 | 491 | 3.3 weeks |
+| telephony | 83 | 221 | 254 | 316 | 3.1 weeks |
+| garden_tools | 46 | 125 | 130 | 134 | 2.8 weeks |
+| auto | 110 | 307 | 318 | 329 | 2.9 weeks |
+
+**Finding:** the stock needed for 95% service ranges from 2.6 to 3.4 weeks of demand. A single rule of about 2.9 weeks would overstock `bed_bath_table` by roughly 48 units while leaving `computers_accessories` at about 90% service. Stocking rules should be set per category.
+
+**What I would try next:** add holding and lost-sale costs to choose the service level by cost instead of fixing it; let the forecast update each simulated week; test longer lead times, where clustered errors should matter more.
 
 ## How to run
 
@@ -113,7 +153,7 @@ pip install -r requirements.txt
 python scripts/pipeline.py
 ```
 
-3. Reproduce the model comparison (takes several minutes):
+3. Reproduce the late-delivery model comparison (takes several minutes):
 
 ```bash
 python ml/evaluate_cv.py
@@ -126,6 +166,13 @@ python ml/forecast_baselines.py
 python ml/forecast_intervals.py
 ```
 
+5. Reproduce the inventory simulation and per-category targets:
+
+```bash
+python ml/inventory_simulation.py
+python ml/inventory_policy_table.py
+```
+
 ## Project structure
 
 ```
@@ -136,14 +183,17 @@ python ml/forecast_intervals.py
 │   ├── pipeline.py        # Prefect flow: load, then dbt build
 │   └── explore_tables.py  # sample rows and one order traced across tables
 ├── dbt/
-│   └── models/
-│       ├── staging/       # one cleaned model per source table, with tests
-│       └── marts/         # fct_orders, model features, weekly demand
+│   ├── models/
+│   │   ├── staging/       # one cleaned model per source table, with tests
+│   │   └── marts/         # fct_orders, model features, weekly demand
+│   └── tests/             # custom test: no missing weeks in the demand calendar
 └── ml/
-    ├── train_late_delivery.py  # feature loading and a single time-split baseline
-    ├── evaluate_cv.py          # time-based cross-validation of models and feature sets
-    ├── forecast_baselines.py   # rolling evaluation of simple weekly demand forecasts
-    └── forecast_intervals.py   # calibrated 80% prediction intervals
+    ├── train_late_delivery.py    # feature loading and a single time-split baseline
+    ├── evaluate_cv.py            # time-based cross-validation of models and feature sets
+    ├── forecast_baselines.py     # rolling evaluation of simple weekly demand forecasts
+    ├── forecast_intervals.py     # calibrated 80% prediction intervals
+    ├── inventory_simulation.py   # Monte Carlo order-up-to policy, independent vs clustered errors
+    └── inventory_policy_table.py # stock targets per category at 90/95/99% service
 ```
 
 ## Data
@@ -154,6 +204,8 @@ Brazilian E-Commerce Public Dataset by Olist, published on Kaggle. The data is n
 
 - Orders bought near the end of the data that would have been late may not have been delivered before the data was cut, so recent periods may understate lateness.
 - Lateness depends strongly on time-period conditions that purchase-time features cannot see, which caps how well any order-level model can perform.
+- Prediction intervals use one shared set of multipliers for all categories; smaller categories are relatively noisier than this assumes.
+- The inventory simulation rests on stated assumptions (hypothetical warehouse, 2-week lead time, lost sales) and a fixed forecast, not on Olist's actual logistics.
+- Each category has only about 38 weeks of error history, so simulated extremes cannot be worse than the worst week observed; the 99% targets understate rare risks.
 - Package versions in `requirements.txt` are not yet pinned.
 - The data covers 2016–2018 and one marketplace, so findings describe that context only.
-- Prediction intervals use one shared set of multipliers for all categories; smaller categories are relatively noisier than this assumes.
