@@ -65,3 +65,21 @@ models:
         data_tests:
           - unique
           - not_null
+  
+  - name: stg_cookie_cats
+    columns:
+      - name: player_id
+        data_tests:
+          - unique
+          - not_null
+      - name: variant
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['gate_30', 'gate_40']
+      - name: retained_day1
+        data_tests:
+          - not_null
+      - name: retained_day7
+        data_tests:
+          - not_null
