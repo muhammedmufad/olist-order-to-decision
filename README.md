@@ -1,6 +1,8 @@
 # Olist order-to-decision pipeline
 
-End-to-end analytics on 99,441 real e-commerce orders from Olist, a Brazilian marketplace: from raw CSV files to a tested data warehouse, then to delivery-risk and demand models, inventory decisions and a served API. A separate module analyses a public A/B test.
+**[Live demo](https://olist-order-to-decision.streamlit.app/)** · score an order's late-delivery risk, explore demand forecasts and stock targets, and see the drift monitor.
+
+End-to-end analytics on 99,441 real e-commerce orders from Olist, a Brazilian marketplace: from raw CSV files to a tested data warehouse, then to delivery-risk and demand models, inventory decisions, a containerised prediction API, drift monitoring and a live dashboard. A separate module analyses a public A/B test.
 
 **Business question:** Which orders are at risk of arriving late, how much will each product category sell in the coming weeks, and how much stock should be held?
 
@@ -12,7 +14,7 @@ End-to-end analytics on 99,441 real e-commerce orders from Olist, a Brazilian ma
 | 2. Models | Late-delivery classifier, weekly demand forecast with prediction intervals | ✅ Done |
 | 3. Inventory simulation | Monte Carlo safety stock and service levels | ✅ Done |
 | 4. Experiment analysis | A/B test on a public mobile-game dataset (Cookie Cats) | ✅ Done |
-| 5. Serving and monitoring | FastAPI in Docker, drift check, dashboard | Planned |
+| 5. Serving and monitoring | FastAPI in Docker, automated tests, drift check, live dashboard | ✅ Done |
 
 ## Architecture
 
@@ -25,9 +27,15 @@ flowchart LR
     D --> F[ml_late_delivery_features]
     E --> F
     F -->|evaluate_cv.py| G[Late-delivery model]
+    G -->|train_final_model.py| M[models/ saved model]
+    M --> API[FastAPI in Docker]
+    M --> DASH[Streamlit dashboard]
     C --> H[mart_weekly_category_demand]
     H -->|forecast_*.py| I[Demand forecast]
     I -->|inventory_*.py| J[Stock targets]
+    J -->|export_results.py| DASH
+    F -->|drift_check.py| DR[Drift report]
+    DR --> DASH
     C -->|ab_cookie_cats.py| K[A/B test decision]
     P[Prefect flow] -.runs.-> A
     P -.runs.-> C
@@ -35,9 +43,10 @@ flowchart LR
 
 - **Load:** `scripts/load_raw.py` copies every CSV file in `data/raw/` unchanged into DuckDB's `raw` schema.
 - **Transform:** dbt staging models rename columns, set types and fix source spelling errors. Marts join them into one row per order (`fct_orders`), model-ready feature tables and weekly demand per category.
-- **Test:** 38 dbt tests check unique and non-null keys, valid order statuses and experiment variants, referential integrity, and that no week is missing from the demand calendar.
+- **Test:** 38 dbt tests check unique and non-null keys, valid order statuses and experiment variants, referential integrity, and that no week is missing from the demand calendar. 6 pytest tests check the API.
 - **Orchestrate:** `scripts/pipeline.py` runs load, then build, as one Prefect flow with retries and per-task logs.
 - **Model and decide:** scripts in `ml/` evaluate the late-delivery model, the demand forecast, the inventory simulation and the A/B test.
+- **Serve and monitor:** the final model is saved to `models/`, served by a FastAPI service in Docker, checked for drift, and shown in a Streamlit dashboard.
 
 ## Findings from the data
 
@@ -73,8 +82,6 @@ flowchart LR
 - **Recent delivery conditions** (late rate of orders delivered in the 14 days before purchase) lag reality by about a month, because late orders reveal their lateness only when they finally arrive. Results were mixed, so the feature was not kept.
 - **Gradient boosting** did not beat logistic regression consistently and degraded with history features, which act like a hidden calendar it can memorise.
 
-**What I would try next:** smoothing seller late rates toward the overall average for sellers with little history; carrier or route information, which the dataset does not contain.
-
 ## Weekly demand forecast
 
 **Goal:** forecast units ordered per week for the 10 largest product categories, 4 weeks ahead, with a range that inventory planning can use.
@@ -95,8 +102,6 @@ flowchart LR
 **Prediction intervals:** the ratio of actual to forecast demand was measured on an earlier calibration period (origins from late Nov 2017). Its 10th and 90th percentiles (0.52 and 1.55) give an 80% interval of forecast × 0.52 to forecast × 1.55. On the later, unseen test period, **84.1% of actual values fell inside the interval** (target 80%), so the interval is honest and slightly conservative. Example: `bed_bath_table` is forecast at about 189 units per week, with an 80% interval of 99 to 292.
 
 **Interpretation:** weekly category demand is noisy, so even the best simple method misses by about 28% of actual demand. The range matters more than the single number, and the inventory simulation is built on it.
-
-**What I would try next:** exponential smoothing or a gradient-boosting model on lagged demand, kept only if it beats the 27.6% WAPE baseline across the rolling evaluation; category-specific intervals instead of one shared set of multipliers.
 
 ## Inventory simulation
 
@@ -133,8 +138,6 @@ Stocking exactly the expected demand runs out in more than 40% of weeks. Each ad
 
 **Finding:** the stock needed for 95% service ranges from 2.6 to 3.4 weeks of demand. A single rule of about 2.9 weeks would overstock `bed_bath_table` by roughly 48 units while leaving `computers_accessories` at about 90% service. Stocking rules should be set per category.
 
-**What I would try next:** add holding and lost-sale costs to choose the service level by cost instead of fixing it; let the forecast update each simulated week; test longer lead times, where clustered errors should matter more.
-
 ## Experiment analysis: Cookie Cats
 
 **Question:** in the mobile game Cookie Cats, players must wait (or pay) at a gate before continuing. 90,189 players were randomly split: the control group met the first gate at level 30 (`gate_30`), the treatment group at level 40 (`gate_40`). Did moving the gate change how many players came back after 1 and 7 days?
@@ -157,6 +160,42 @@ Stocking exactly the expected demand runs out in more than 40% of weeks. Each ad
 
 **Not used, and why:** CUPED (variance reduction) needs a metric measured *before* players were assigned. The only usage metric here, game rounds, was measured afterwards and is affected by the change itself, so using it would bias the result.
 
+## Serving and monitoring
+
+**Saved model:** `ml/train_final_model.py` trains the chosen model on all 96,470 delivered orders and saves it to `models/late_delivery_model.joblib` (8 KB), with a metadata file recording the features, training period and late rate.
+
+**API:** `app/main.py` (FastAPI) loads the model once at start-up and serves `GET /health` and `POST /predict`. Inputs are validated (an hour of 25 is rejected with HTTP 422), and derived features are computed exactly as in training to avoid training/serving skew. Example: an order from São Paulo to Amazonas (2,700 km) scores 34.1% risk, 4.2× the average; the same order within São Paulo over 20 km scores 4.6%.
+
+**Tests:** 6 pytest tests cover the health check, that answers are probabilities, that a distant order scores riskier than a local one, that invalid input is rejected, and that a missing distance or an unseen category is handled.
+
+**Docker:** `docker compose up --build` builds a lean image with only the API's dependencies (`requirements-api.txt`) and starts the service; the tests also pass inside the container. Verified in GitHub Codespaces. The service is containerised, not deployed as a hosted API.
+
+**Drift check:** `ml/drift_check.py` treats Jan 2017 – Apr 2018 as the reference and May – Aug 2018 as the monitored period, and compares them with the Population Stability Index (PSI: below 0.10 stable, 0.10–0.25 watch, above 0.25 drift).
+
+| Feature | PSI | Status |
+|---|---|---|
+| promised_days | 0.350 | drift |
+| freight_value | 0.267 | drift |
+| main_category | 0.172 | watch |
+| all other features | below 0.04 | stable |
+
+| Period | Avg. promised delivery | Model's predicted risk | Actual late rate |
+|---|---|---|---|
+| Reference (to Apr 2018) | 25.1 days | 7.7% | 8.8% |
+| Current (May – Aug 2018) | 22.0 days | 9.4% | 6.2% |
+
+**Finding:** from May 2018 Olist promised deliveries about 3 days sooner and freight costs rose about 9%, yet lateness fell. The model, trained mostly on the older pattern, raised its risk estimates just as real lateness fell, so its percentages overstate recent risk; its ranking of orders remains the useful output. This is the signal to recalibrate or retrain on recent data. A simulated 50% increase in distances reached PSI 0.225 ("watch" rather than "drift"), a reminder that PSI thresholds are conventions to tune to the model.
+
+**Dashboard:** [live demo](https://olist-order-to-decision.streamlit.app/), built with Streamlit (`dashboard/app.py`). It reads only the saved model and small aggregated result tables exported to `reports/` by `ml/export_results.py`, so it runs without the raw data.
+
+## What I would do next
+
+- **Recalibrate the late-delivery model on recent orders**, since the drift check shows its percentages overstate risk after May 2018, and schedule the drift check to run regularly.
+- **Smooth seller late rates** toward the overall average for sellers with little history; add carrier or route data, which this dataset does not contain.
+- **Try exponential smoothing or a gradient-boosting model on lagged demand**, kept only if it beats the 27.6% WAPE baseline in the rolling evaluation; use category-specific intervals.
+- **Choose service levels by cost** (holding cost vs lost sale) instead of fixing them, update the forecast inside the simulation, and test longer lead times.
+- **For the A/B test**, obtain assignment logs to explain the sample ratio mismatch before relying on the result.
+
 ## How to run
 
 Requires Python 3.12 on Windows, macOS or Linux.
@@ -178,54 +217,82 @@ pip install -r requirements.txt
 python scripts/pipeline.py
 ```
 
-3. Reproduce the late-delivery model comparison (takes several minutes):
+3. Reproduce the analyses:
 
 ```bash
-python ml/evaluate_cv.py
+python ml/evaluate_cv.py            # late-delivery model comparison (several minutes)
+python ml/forecast_baselines.py     # demand forecast evaluation
+python ml/forecast_intervals.py     # prediction intervals
+python ml/inventory_simulation.py   # inventory trade-off
+python ml/inventory_policy_table.py # per-category stock targets
+python ml/ab_cookie_cats.py         # A/B test analysis
+python ml/drift_check.py            # drift report
 ```
 
-4. Reproduce the demand forecast evaluation and prediction intervals:
+4. Train the final model and export the dashboard tables:
 
 ```bash
-python ml/forecast_baselines.py
-python ml/forecast_intervals.py
+python ml/train_final_model.py
+python ml/export_results.py
 ```
 
-5. Reproduce the inventory simulation and per-category targets:
+**Run the API and tests** (no data needed; uses the saved model):
 
 ```bash
-python ml/inventory_simulation.py
-python ml/inventory_policy_table.py
+uvicorn app.main:app --reload       # then open http://127.0.0.1:8000/docs
+python -m pytest -v
 ```
 
-6. Reproduce the A/B test analysis:
+**Run the API in Docker** (one command):
 
 ```bash
-python ml/ab_cookie_cats.py
+docker compose up --build
+```
+
+**Run the dashboard:**
+
+```bash
+streamlit run dashboard/app.py
 ```
 
 ## Project structure
 
 ```
-├── data/raw/              # Olist and Cookie Cats CSVs (not in the repo)
-├── warehouse/             # DuckDB database file (not in the repo)
-├── scripts/
-│   ├── load_raw.py        # CSVs into the raw schema
-│   ├── pipeline.py        # Prefect flow: load, then dbt build
-│   └── explore_tables.py  # sample rows and one order traced across tables
+├── app/
+│   └── main.py                 # FastAPI service: /health and /predict
+├── dashboard/
+│   ├── app.py                  # Streamlit dashboard (live demo)
+│   └── requirements.txt        # dashboard-only dependencies for hosting
+├── data/raw/                   # Olist and Cookie Cats CSVs (not in the repo)
 ├── dbt/
 │   ├── models/
-│   │   ├── staging/       # one cleaned model per source table, with tests
-│   │   └── marts/         # fct_orders, model features, weekly demand
-│   └── tests/             # custom test: no missing weeks in the demand calendar
-└── ml/
-    ├── train_late_delivery.py    # feature loading and a single time-split baseline
-    ├── evaluate_cv.py            # time-based cross-validation of models and feature sets
-    ├── forecast_baselines.py     # rolling evaluation of simple weekly demand forecasts
-    ├── forecast_intervals.py     # calibrated 80% prediction intervals
-    ├── inventory_simulation.py   # Monte Carlo order-up-to policy, independent vs clustered errors
-    ├── inventory_policy_table.py # stock targets per category at 90/95/99% service
-    └── ab_cookie_cats.py         # sample ratio check, power, z-test and bootstrap
+│   │   ├── staging/            # one cleaned model per source table, with tests
+│   │   └── marts/              # fct_orders, model features, weekly demand
+│   └── tests/                  # custom test: no missing weeks in the demand calendar
+├── ml/
+│   ├── train_late_delivery.py    # feature loading and a single time-split baseline
+│   ├── evaluate_cv.py            # time-based cross-validation of models and feature sets
+│   ├── train_final_model.py      # trains and saves the chosen model
+│   ├── forecast_baselines.py     # rolling evaluation of simple weekly demand forecasts
+│   ├── forecast_intervals.py     # calibrated 80% prediction intervals
+│   ├── inventory_simulation.py   # Monte Carlo order-up-to policy, independent vs clustered errors
+│   ├── inventory_policy_table.py # stock targets per category at 90/95/99% service
+│   ├── ab_cookie_cats.py         # sample ratio check, power, z-test and bootstrap
+│   ├── drift_check.py            # PSI input drift, prediction vs outcome drift
+│   └── export_results.py         # small result tables for the dashboard
+├── models/                     # saved model and its metadata
+├── reports/                    # exported result tables read by the dashboard
+├── scripts/
+│   ├── load_raw.py             # CSVs into the raw schema
+│   ├── pipeline.py             # Prefect flow: load, then dbt build
+│   └── explore_tables.py       # sample rows and one order traced across tables
+├── tests/
+│   └── test_api.py             # pytest tests for the API
+├── warehouse/                  # DuckDB database file (not in the repo)
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt            # full project dependencies, pinned
+└── requirements-api.txt        # API-only dependencies for the Docker image
 ```
 
 ## Data
@@ -233,14 +300,16 @@ python ml/ab_cookie_cats.py
 - **Brazilian E-Commerce Public Dataset by Olist**, published on Kaggle.
 - **Mobile Games A/B Testing - Cookie Cats**, published on Kaggle.
 
-Neither dataset is redistributed in this repository; see each Kaggle page for its license.
+Neither dataset is redistributed in this repository; only aggregated results (weekly totals, stock targets, drift scores) are stored in `reports/`. See each Kaggle page for its license.
 
 ## Limitations
 
 - Orders bought near the end of the data that would have been late may not have been delivered before the data was cut, so recent periods may understate lateness.
 - Lateness depends strongly on time-period conditions that purchase-time features cannot see, which caps how well any order-level model can perform.
+- The model's risk percentages overstate risk for orders after May 2018 (see the drift check); treat its output as a ranking until it is recalibrated.
 - Prediction intervals use one shared set of multipliers for all categories; smaller categories are relatively noisier than this assumes.
 - The inventory simulation rests on stated assumptions (hypothetical warehouse, 2-week lead time, lost sales) and a fixed forecast, not on Olist's actual logistics.
 - Each category has only about 38 weeks of error history, so simulated extremes cannot be worse than the worst week observed; the 99% targets understate rare risks.
 - The Cookie Cats experiment shows a sample ratio mismatch that cannot be investigated without assignment logs; its conclusions are directional, not definitive.
+- The dashboard shows a snapshot of exported results; rerun `ml/export_results.py` after changing any analysis.
 - The Olist data covers 2016–2018 and one marketplace, so findings describe that context only.
