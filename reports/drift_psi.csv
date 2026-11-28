@@ -1,0 +1,15 @@
+feature,psi,status
+promised_days,0.35,DRIFT
+freight_value,0.267,DRIFT
+main_category,0.172,watch
+seller_state,0.034,stable
+main_item_weight_g,0.019,stable
+customer_state,0.018,stable
+distance_km,0.018,stable
+same_state,0.016,stable
+items_value,0.006,stable
+freight_ratio,0.004,stable
+purchase_dow,0.003,stable
+purchase_hour,0.001,stable
+seller_count,0.0,stable
+item_count,0.0,stable

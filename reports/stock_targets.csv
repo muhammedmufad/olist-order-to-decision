@@ -1,0 +1,11 @@
+category,forecast_per_week,target_90,target_95,target_99,weeks_cover_95
+bed_bath_table,189,472,500,557,2.6
+health_beauty,226,633,655,746,2.9
+sports_leisure,139,362,397,466,2.9
+furniture_decor,136,396,410,464,3.0
+computers_accessories,130,376,434,589,3.4
+housewares,184,486,514,587,2.8
+watches_gifts,128,338,427,491,3.3
+telephony,83,221,254,316,3.1
+garden_tools,46,125,130,134,2.8
+auto,110,307,318,329,2.9
